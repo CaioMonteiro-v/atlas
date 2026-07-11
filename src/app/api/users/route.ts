@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { Prisma } from "@prisma/client";
 
 const CreateUserSchema = z.object({
   email: z.string().email(),
@@ -10,28 +11,63 @@ const CreateUserSchema = z.object({
 });
 
 export async function GET() {
-  const users = await prisma.user.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+  try {
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: "desc" },
+    });
 
-  return NextResponse.json({ data: users });
+    return NextResponse.json({ ok: true, data: users }, { status: 200 });
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: { code: "INTERNAL_ERROR", message: "Erro interno" } },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const parsed = CreateUserSchema.parse(body);
+    const parsed = CreateUserSchema.safeParse(body);
 
-    const user = await prisma.user.create({ data: parsed });
-    return NextResponse.json({ data: user }, { status: 201 });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Dados inválidos", details: error.flatten() },
+        {
+          ok: false,
+          error: {
+            code: "BAD_REQUEST",
+            message: "Dados inválidos",
+            details: parsed.error.flatten(),
+          },
+        },
         { status: 400 }
       );
     }
 
-    return NextResponse.json({ error: "Erro interno" }, { status: 500 });
+    const user = await prisma.user.create({ data: parsed.data });
+
+    return NextResponse.json({ ok: true, data: user }, { status: 201 });
+  } catch (error) {
+    // Exemplo útil: e-mail único duplicado
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "CONFLICT",
+            message: "E-mail já cadastrado",
+          },
+        },
+        { status: 409 }
+      );
+    }
+
+    return NextResponse.json(
+      { ok: false, error: { code: "INTERNAL_ERROR", message: "Erro interno" } },
+      { status: 500 }
+    );
   }
 }
