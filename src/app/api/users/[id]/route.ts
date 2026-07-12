@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { ok, fail } from "@/lib/api-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: Promise<{ id: string }> };
+type Ctx = { params: { id: string } | Promise<{ id: string }> };
 
 const UpdateUserSchema = z
   .object({
@@ -19,68 +19,82 @@ const UpdateUserSchema = z
     message: "Envie ao menos um campo para atualizar",
   });
 
+async function getId(params: Ctx["params"]) {
+  const resolved = await Promise.resolve(params);
+  return resolved.id;
+}
+
 export async function GET(_: Request, { params }: Ctx) {
-  const { id } = await params;
-  const user = await prisma.user.findUnique({ where: { id } });
+  try {
+    const id = await getId(params);
 
-  if (!user) {
-    return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 });
+    const user = await prisma.user.findUnique({
+      where: { id },
+    });
+
+    if (!user) {
+      return fail("NOT_FOUND", "Usuário não encontrado", 404);
+    }
+
+    return ok(user, 200);
+  } catch (error) {
+    console.error("GET /api/users/[id] error:", error);
+    return fail("INTERNAL_ERROR", "Erro interno", 500);
   }
-
-  return NextResponse.json({ data: user }, { status: 200 });
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
   try {
-    const { id } = await params;
+    const id = await getId(params);
     const body = await req.json();
-    const parsed = UpdateUserSchema.parse(body);
+
+    const parsed = UpdateUserSchema.safeParse(body);
+    if (!parsed.success) {
+      return fail("BAD_REQUEST", "Dados inválidos", 400, parsed.error.flatten());
+    }
 
     const user = await prisma.user.update({
       where: { id },
-      data: parsed,
+      data: parsed.data,
     });
 
-    return NextResponse.json({ data: user }, { status: 200 });
+    return ok(user, 200);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Dados inválidos", details: error.flatten() },
-        { status: 400 }
-      );
-    }
-
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2025"
     ) {
-      return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 });
+      return fail("NOT_FOUND", "Usuário não encontrado", 404);
     }
 
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      return NextResponse.json({ error: "E-mail já cadastrado" }, { status: 409 });
+      return fail("CONFLICT", "E-mail já cadastrado", 409);
     }
 
-    return NextResponse.json({ error: "Erro interno" }, { status: 500 });
+    return fail("INTERNAL_ERROR", "Erro interno", 500);
   }
 }
 
 export async function DELETE(_: Request, { params }: Ctx) {
   try {
-    const { id } = await params;
-    await prisma.user.delete({ where: { id } });
-    return new NextResponse(null, { status: 204 });
+    const id = await getId(params);
+
+    await prisma.user.delete({
+      where: { id },
+    });
+
+    return new Response(null, { status: 204 });
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2025"
     ) {
-      return NextResponse.json({ error: "Usuário não encontrado" }, { status: 404 });
+      return fail("NOT_FOUND", "Usuário não encontrado", 404);
     }
 
-    return NextResponse.json({ error: "Erro interno" }, { status: 500 });
+    return fail("INTERNAL_ERROR", "Erro interno", 500);
   }
 }
