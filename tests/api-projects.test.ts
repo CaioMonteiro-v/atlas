@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import { GET as GET_PROJECTS, POST as POST_PROJECTS } from "@/app/api/projects/route";
 import { GET as GET_PROJECT_BY_ID } from "@/app/api/projects/[id]/route";
+import {
+  PATCH as PATCH_PROJECT_BY_ID,
+  DELETE as DELETE_PROJECT_BY_ID,
+} from "@/app/api/projects/[id]/route";
 
 type ProjectByIdContext = Parameters<typeof GET_PROJECT_BY_ID>[1];
 
@@ -84,5 +88,98 @@ describe("API /api/projects/[id]", () => {
     const json = await res.json();
     expect(json.ok).toBe(false);
     expect(json.error.code).toBe("INTERNAL_ERROR");
+  });
+});
+
+describe("API /api/projects/[id] - PATCH/DELETE", () => {
+  it("PATCH invalid payload should return 400", async () => {
+    const project = await prisma.project.create({
+      data: {
+        name: "Project One",
+        description: "desc",
+        status: "active",
+      },
+    });
+
+    const req = new Request(`http://localhost/api/projects/${project.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}), // refine exige ao menos 1 campo
+    });
+
+    const res = await PATCH_PROJECT_BY_ID(req, projectByIdContext(project.id));
+    expect(res.status).toBe(400);
+
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.error.code).toBe("BAD_REQUEST");
+  });
+
+  it("PATCH with missing id should return 404", async () => {
+    const req = new Request("http://localhost/api/projects/missing-id", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Updated Project" }),
+    });
+
+    const res = await PATCH_PROJECT_BY_ID(req, projectByIdContext("missing-id"));
+    expect(res.status).toBe(404);
+
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.error.code).toBe("NOT_FOUND");
+  });
+
+  it("PATCH valid payload should return 200", async () => {
+    const project = await prisma.project.create({
+      data: {
+        name: "Project Patch",
+        description: "before",
+        status: "active",
+      },
+    });
+
+    const req = new Request(`http://localhost/api/projects/${project.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "paused" }),
+    });
+
+    const res = await PATCH_PROJECT_BY_ID(req, projectByIdContext(project.id));
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.data.status).toBe("paused");
+  });
+
+  it("DELETE with missing id should return 404", async () => {
+    const res = await DELETE_PROJECT_BY_ID(
+      new Request("http://localhost/api/projects/missing-id", { method: "DELETE" }),
+      projectByIdContext("missing-id")
+    );
+
+    expect(res.status).toBe(404);
+
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.error.code).toBe("NOT_FOUND");
+  });
+
+  it("DELETE existing project should return 204", async () => {
+    const project = await prisma.project.create({
+      data: {
+        name: "Project Delete",
+        description: "to delete",
+        status: "active",
+      },
+    });
+
+    const res = await DELETE_PROJECT_BY_ID(
+      new Request(`http://localhost/api/projects/${project.id}`, { method: "DELETE" }),
+      projectByIdContext(project.id)
+    );
+
+    expect(res.status).toBe(204);
   });
 });
