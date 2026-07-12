@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
+import { ok, fail } from "@/lib/api-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,26 +12,29 @@ const CreateProjectSchema = z.object({
 });
 
 export async function GET() {
-  const projects = await prisma.project.findMany({
-    orderBy: { createdAt: "desc" },
-  });
-  return NextResponse.json({ data: projects }, { status: 200 });
+  try {
+    const projects = await prisma.project.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+
+    return ok(projects, 200);
+  } catch {
+    return fail("INTERNAL_ERROR", "Erro interno", 500);
+  }
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const parsed = CreateProjectSchema.parse(body);
+    const parsed = CreateProjectSchema.safeParse(body);
 
-    const project = await prisma.project.create({ data: parsed });
-    return NextResponse.json({ data: project }, { status: 201 });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Dados inválidos", details: error.flatten() },
-        { status: 400 }
-      );
+    if (!parsed.success) {
+      return fail("BAD_REQUEST", "Dados inválidos", 400, parsed.error.flatten());
     }
-    return NextResponse.json({ error: "Erro interno" }, { status: 500 });
+
+    const project = await prisma.project.create({ data: parsed.data });
+    return ok(project, 201);
+  } catch {
+    return fail("INTERNAL_ERROR", "Erro interno", 500);
   }
 }

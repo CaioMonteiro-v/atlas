@@ -1,9 +1,12 @@
-﻿import { NextResponse } from "next/server";
+﻿import { ok } from "@/lib/api-response";
 
 export async function GET() {
-  return NextResponse.json({
-    status: "ok",
-    service: "atlas",
-    timestamp: new Date().toISOString(),
-  });
+  return ok(
+    {
+      status: "ok",
+      service: "atlas",
+      timestamp: new Date().toISOString(),
+    },
+    200
+  );
 }
